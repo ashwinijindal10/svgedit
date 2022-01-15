@@ -1,4 +1,5 @@
 const name = "helloworld";
+const commandName = "hello_world";
 import { getVisibleElements } from "./../../../svgcanvas/utilities";
 
 const loadExtensionTranslation = async function(svgEditor) {
@@ -20,8 +21,9 @@ export default {
     await loadExtensionTranslation(svgEditor);
     const { svgCanvas } = svgEditor;
     const { $id, $click } = svgCanvas;
-    let startPointSelected = null;
-    let endPointSelected = null;
+    let currentCanvasLayer = svgCanvas.getCurrentDrawing().getCurrentLayer();
+    let startPoints = null;
+    let endPoints = null;
 
     /**
      * @description Check if pt3 is on line defined by pt1 and pt2.
@@ -68,6 +70,49 @@ export default {
       return Number(num + "e" + -decimalPlaces);
     }
 
+    function createDrawElement(id, svgPath, textPosition, text) {
+      const fontSize = 15;
+      const g = svgCanvas.createSVGElement({
+        element: "g",
+        attr: {
+          id: "angleGroup_" + id
+        }
+      });
+
+      const pathSVG = svgCanvas.createSVGElement({
+        element: "path",
+        attr: {
+          id: "arcdegree_" + id,
+          d: svgPath,
+          fill: "none",
+          stroke: "red",
+          "stroke-width": "1",
+          // "stroke-dasharray": "5,5",
+          style: "pointer-events:none"
+        }
+      });
+
+      const textSvg = svgCanvas.createSVGElement({
+        element: "text",
+        attr: {
+          id: "angle_txt_" + id,
+          fill: "black",
+          stroke: "none",
+          "stroke-width": 0,
+          x: textPosition.x + fontSize * 0.8,
+          y: textPosition.y - 3,
+          "font-size": fontSize,
+          "text-anchor": "start"
+        }
+      });
+      textSvg.innerHTML = text;
+
+      g.append(pathSVG);
+      g.append(textSvg);
+
+      return g;
+    }
+
     function calculateAngle(
       { x: Ax1, y: Ay1 },
       { x: Ax2, y: Ay2 },
@@ -82,13 +127,11 @@ export default {
       if (angle < 0) {
         angle = angle * -1;
       }
-      return round(angle * (180 / Math.PI), 2);
+      return round(angle * (180 / Math.PI), 2) ?? 0;
     }
 
     function drawArc(opts) {
-      const parent = svgCanvas.getCurrentDrawing().getCurrentLayer();
-
-      const elements = getVisibleElements(parent);
+      const elements = getVisibleElements(currentCanvasLayer);
 
       Array.from(elements).every(elem => {
         if (elem.nodeName === "line") {
@@ -96,77 +139,52 @@ export default {
           const p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
           const p3 = { x: opts.mouse_x, y: opts.mouse_y };
           if (elem && pointOnLine(p1, p2, p3)) {
-            if (startPointSelected) {
-              endPointSelected = { p1, p2, p3 };
+            if (startPoints) {
+              endPoints = { p1, p2, p3 };
             } else {
-              startPointSelected = { p1, p2, p3 };
+              startPoints = { p1, p2, p3 };
             }
 
-            elem.setAttribute(
-              "style",
-              "stroke-linejoin: round; filter:  drop-shadow(1px 1px 0px purple) drop-shadow(-1px 1px 0px purple) drop-shadow(1px -1px 0px purple) drop-shadow(-1px -1px 0px purple);"
-            );
+            elem.setAttribute("class", "angle-selected");
             return false;
           }
         }
         return true;
       });
 
-      // console.log(lastPointSelected, currentPointSelected);
-
-      if (startPointSelected && endPointSelected) {
+      if (startPoints && endPoints) {
+        const centerPoint = {
+          x: (startPoints.p3.x + endPoints.p3.x) / 2,
+          y: (startPoints.p3.y + endPoints.p3.y) / 2
+        };
+        const offset = 2;
         const path = arc_links(
-          startPointSelected.p3.x,
-          startPointSelected.p3.y,
-          endPointSelected.p3.x,
-          endPointSelected.p3.y,
-          30
+          startPoints.p3.x + offset,
+          startPoints.p3.y + offset,
+          endPoints.p3.x + offset,
+          endPoints.p3.y + offset,
+          (centerPoint.x + centerPoint.y) / 10
         );
 
         const angleBetween = calculateAngle(
-          startPointSelected.p1,
-          startPointSelected.p2,
-          endPointSelected.p1,
-          endPointSelected.p2
+          startPoints.p1,
+          startPoints.p2,
+          endPoints.p1,
+          endPoints.p2
         );
         const id = svgCanvas.getNextId();
-        const pathSVG = svgCanvas.createSVGElement({
-          element: "path",
-          attr: {
-            id: "arcdegree_" + id,
-            d: path,
-            fill: "none",
-            stroke: "red",
-            "stroke-width": "2",
-            "stroke-dasharray": "5,5",
-            // need to specify this so that the rect is not selectable
-            style: "pointer-events:none"
-          }
-        });
-        const fontSize = 12;
-        const [cx, cy] = [
-          (startPointSelected.p3.x + endPointSelected.p3.x) / 2,
-          (startPointSelected.p3.y + endPointSelected.p3.y) / 2
-        ];
-        const text = svgCanvas.createSVGElement({
-          element: "text",
-          attr: {
-            id: "txt_" + id,
-            fill: "black",
-            stroke: "none",
-            "stroke-width": 0,
-            x: cx + 3,
-            y: cy - 3 + (fontSize + 6),
-            //  "font-family": font,
-            "font-size": fontSize,
-            "text-anchor": "start"
-          }
-        });
-        text.innerHTML = `${angleBetween}°`;
-        parent.append(pathSVG);
-        parent.append(text);
-        startPointSelected = null;
-        endPointSelected = null;
+
+        const svgGroup = createDrawElement(
+          id,
+          path,
+          centerPoint,
+          `${angleBetween}°`
+        );
+
+        currentCanvasLayer.prepend(svgGroup);
+
+        startPoints = null;
+        endPoints = null;
       }
     }
 
@@ -177,36 +195,47 @@ export default {
         const buttonTemplate = document.createElement("template");
         const title = `${name}:buttons.0.title`;
         buttonTemplate.innerHTML = `
-        <se-button id="hello_world" title="${title}" src="hello_world.svg"></se-button>
+        <se-button id="${commandName}" title="${title}" src="${commandName}.svg"></se-button>
         `;
         $id("tools_left").append(buttonTemplate.content.cloneNode(true));
-        $click($id("hello_world"), () => {
-          svgCanvas.setMode("hello_world");
+        $click($id(commandName), () => {
+          svgCanvas.setMode(commandName);
+          currentCanvasLayer.classList.add("angleBetweenActive");
+        });
+        $click($id("tools_left"), () => {
+          if (svgCanvas.getMode() !== commandName) {
+            currentCanvasLayer.classList.remove("angleBetweenActive");
+          }
         });
       },
-
+      contextChanged(win, context) {
+        currentCanvasLayer = svgCanvas.getCurrentDrawing().getCurrentLayer();
+      },
       mouseDown() {
         // Check the mode on mousedown
-        if (svgCanvas.getMode() === "hello_world") {
-          // The returned object must include "started" with
-          // a value of true in order for mouseUp to be triggered
+        if (svgCanvas.getMode() === commandName) {
           return { started: true };
         }
         return undefined;
       },
-      mouseMove(opts) {},
+      mouseMove(opts) {
+        if (svgCanvas.getMode() === commandName) {
+        }
+        // currentCanvasLayer.classList.remove("angleBetweenActive");
+      },
       mouseUp(opts) {
         // Check the mode on mouseup
-        let started = !(startPointSelected || endPointSelected);
-        if (svgCanvas.getMode() === "hello_world") {
+        let started = !(startPoints || endPoints);
+        if (svgCanvas.getMode() === commandName) {
           drawArc(opts);
-          //alert(text)
 
           return {
             keep: true,
             started
           };
         }
+
+        return undefined;
       }
     };
   }
