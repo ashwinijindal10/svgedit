@@ -1,5 +1,5 @@
 const name = "helloworld";
-const commandName = "hello_world";
+const commandName = "angle_between";
 import { getVisibleElements } from "./../../../svgcanvas/utilities";
 
 const loadExtensionTranslation = async function(svgEditor) {
@@ -22,9 +22,14 @@ export default {
     const { svgCanvas } = svgEditor;
     const { $id, $click } = svgCanvas;
     let currentCanvasLayer = svgCanvas.getCurrentDrawing().getCurrentLayer();
+    const [arcPrefix, textPrefix, groupPrefix] = [
+      "arcdegree_",
+      "angle_txt_",
+      "angleGroup_"
+    ];
     let startPoints = null;
     let endPoints = null;
-
+    let currentId = null;
     /**
      * @description Check if pt3 is on line defined by pt1 and pt2.
      * https://stackoverflow.com/questions/17692922/check-is-a-point-x-y-is-between-two-points-drawn-on-a-straight-line
@@ -60,9 +65,10 @@ export default {
       const dx = (x2 - x1) / 2;
       const dy = (y2 - y1) / 2;
       const dd = Math.sqrt(dx * dx + dy * dy);
-      const ex = cx + (dy / dd) * k; //* (i - (n - 1) / 2);
-      const ey = cy - (dx / dd) * k; //* (i - (n - 1) / 2);
-      return "M" + x1 + " " + y1 + " Q" + ex + " " + ey + " " + x2 + " " + y2;
+      const ex = cx + (dd ? dy / dd : 0) * k; //* (i - (n - 1) / 2);
+      const ey = cy - (dd ? dx / dd : 0) * k; //* (i - (n - 1) / 2);
+
+      return `M${x1} ${y1} Q${ex} ${ey} ${x2} ${y2}`;
     }
 
     function round(num, decimalPlaces) {
@@ -70,19 +76,20 @@ export default {
       return Number(num + "e" + -decimalPlaces);
     }
 
+    ///////////////////////////////////////////////////////////////////
     function createDrawElement(id, svgPath, textPosition, text) {
       const fontSize = 15;
       const g = svgCanvas.createSVGElement({
         element: "g",
         attr: {
-          id: "angleGroup_" + id
+          id: groupPrefix + id
         }
       });
 
       const pathSVG = svgCanvas.createSVGElement({
         element: "path",
         attr: {
-          id: "arcdegree_" + id,
+          id: arcPrefix + id,
           d: svgPath,
           fill: "none",
           stroke: "red",
@@ -95,7 +102,7 @@ export default {
       const textSvg = svgCanvas.createSVGElement({
         element: "text",
         attr: {
-          id: "angle_txt_" + id,
+          id: textPrefix + id,
           fill: "black",
           stroke: "none",
           "stroke-width": 0,
@@ -113,6 +120,7 @@ export default {
       return g;
     }
 
+    ///////////////////////////////////////////////////////////////////
     function calculateAngle(
       { x: Ax1, y: Ay1 },
       { x: Ax2, y: Ay2 },
@@ -130,7 +138,75 @@ export default {
       return round(angle * (180 / Math.PI), 2) ?? 0;
     }
 
-    function drawArc(opts) {
+    ///////////////////////////////////////////////////////////////////
+
+    function drawArc(id) {
+      if (startPoints && endPoints) {
+        const centerPoint = {
+          x: (startPoints.p3.x + endPoints.p3.x) / 2,
+          y: (startPoints.p3.y + endPoints.p3.y) / 2
+        };
+        const offset = 2;
+        const path = arc_links(
+          startPoints.p3.x + offset,
+          startPoints.p3.y + offset,
+          endPoints.p3.x + offset,
+          endPoints.p3.y + offset,
+          (centerPoint.x + centerPoint.y) / 10
+        );
+
+        const angleBetween = calculateAngle(
+          startPoints.p1,
+          startPoints.p2,
+          endPoints.p1,
+          endPoints.p2
+        );
+
+        const svgGroup = createDrawElement(
+          id,
+          path,
+          centerPoint,
+          `${angleBetween}°`
+        );
+
+        currentCanvasLayer.prepend(svgGroup);
+      }
+    }
+
+    function updateArc() {
+      if (currentId && startPoints && endPoints) {
+        const arcObject = $id(arcPrefix + currentId);
+        const angleTextObject = $id(textPrefix + currentId);
+        let angleBetween = 0;
+        const centerPoint = {
+          x: (startPoints.p3.x + endPoints.p3.x) / 2,
+          y: (startPoints.p3.y + endPoints.p3.y) / 2
+        };
+        const offset = 2;
+        const path = arc_links(
+          startPoints.p3.x + offset,
+          startPoints.p3.y + offset,
+          endPoints.p3.x + offset,
+          endPoints.p3.y + offset,
+          (centerPoint.x + centerPoint.y) / 10
+        );
+
+        if (startPoints.p1 && startPoints.p2 && endPoints.p1 && endPoints.p2) {
+          angleBetween = calculateAngle(
+            startPoints.p1,
+            startPoints.p2,
+            endPoints.p1,
+            endPoints.p2
+          );
+        }
+
+        arcObject.setAttribute("d", path);
+        angleTextObject.innerHTML = `${angleBetween}°`;
+      }
+    }
+
+    ///////////////////////////////////////
+    function drawArc_old(opts) {
       const elements = getVisibleElements(currentCanvasLayer);
 
       Array.from(elements).every(elem => {
@@ -191,7 +267,6 @@ export default {
     return {
       name: svgEditor.i18next.t(`${name}:name`),
       callback() {
-        // Add the button and its handler(s)
         const buttonTemplate = document.createElement("template");
         const title = `${name}:buttons.0.title`;
         buttonTemplate.innerHTML = `
@@ -211,24 +286,47 @@ export default {
       contextChanged(win, context) {
         currentCanvasLayer = svgCanvas.getCurrentDrawing().getCurrentLayer();
       },
-      mouseDown() {
+      mouseDown(opts) {
         // Check the mode on mousedown
         if (svgCanvas.getMode() === commandName) {
-          return { started: true };
+          const e = opts.event;
+          const { target } = e;
+          if (["line", "path"].includes(target.nodeName)) {
+            const elem = target;
+            const p1 = { x: elem.x1.baseVal.value, y: elem.y1.baseVal.value };
+            const p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
+            const p3 = { x: opts.start_x, y: opts.start_y };
+            startPoints = { p1, p2, p3 };
+            endPoints = { ...startPoints };
+            currentId = svgCanvas.getNextId();
+            drawArc(currentId);
+            return { started: true };
+          }
         }
         return undefined;
       },
       mouseMove(opts) {
         if (svgCanvas.getMode() === commandName) {
+          const { target } = opts.event;
+          const p3 = { x: opts.mouse_x, y: opts.mouse_y };
+          let p1, p2;
+          if (["line", "path"].includes(target.nodeName)) {
+            const elem = target;
+            p1 = { x: elem.x1.baseVal.value, y: elem.y1.baseVal.value };
+            p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
+          }
+          endPoints = { p1, p2, p3 };
+          updateArc();
         }
-        // currentCanvasLayer.classList.remove("angleBetweenActive");
       },
       mouseUp(opts) {
         // Check the mode on mouseup
         let started = !(startPoints || endPoints);
         if (svgCanvas.getMode() === commandName) {
-          drawArc(opts);
-
+          // drawArc(opts);
+          startPoints = null;
+          endPoints = null;
+          currentId = null;
           return {
             keep: true,
             started
