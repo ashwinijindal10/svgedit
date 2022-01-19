@@ -23,7 +23,8 @@ export default {
     const { $id, $click } = svgCanvas;
     let currentCanvasLayer = svgCanvas.getCurrentDrawing().getCurrentLayer();
     const fontSize = 12;
-    const [arcPrefix, textPrefix, groupPrefix] = [
+    const [markerid, arcPrefix, textPrefix, groupPrefix] = [
+      "angleBtwnArrowMarker",
       "arcdegree_",
       "angle_txt_",
       "angleGroup_"
@@ -33,40 +34,20 @@ export default {
     let currentId = null;
 
     /********************************************/
-    
-    function pointOnLine(pt1, pt2, pt3) {
-      const result = {
-        between_x: false,
-        between_y: false
-      };
-
-      // Check within x bounds
-      if (
-        (pt1.x <= pt3.x && pt3.x <= pt2.x) ||
-        (pt2.x <= pt3.x && pt3.x <= pt1.x)
-      ) {
-        result.between_x = true;
-      }
-
-      // Check within y bounds
-      if (
-        (pt1.y <= pt3.y && pt3.y <= pt2.y) ||
-        (pt2.y <= pt3.y && pt3.y <= pt1.y)
-      ) {
-        result.between_y = true;
-      }
-
-      return result.between_x && result.between_y;
-    }
-
     function arc_links(x1, y1, x2, y2, k) {
       const cx = (x1 + x2) / 2;
       const cy = (y1 + y2) / 2;
       const dx = (x2 - x1) / 2;
       const dy = (y2 - y1) / 2;
       const dd = Math.sqrt(dx * dx + dy * dy);
-      const ex = cx + (dd ? dy / dd : 0) * k; //* (i - (n - 1) / 2);
-      const ey = cy - (dd ? dx / dd : 0) * k; //* (i - (n - 1) / 2);
+      let ex = cx + (dd ? dy / dd : 0) * k; //* (i - (n - 1) / 2);
+      let ey = cy - (dd ? dx / dd : 0) * k; //* (i - (n - 1) / 2);
+      const controlPoint = calculateControlPoint();
+
+      if (controlPoint) {
+        //https://codepen.io/branneman/pen/BfxjD?editors=1010
+        [ex, ey] = [controlPoint.x, controlPoint.y];
+      }
 
       return `M${x1} ${y1} Q${ex} ${ey} ${x2} ${y2}`;
     }
@@ -77,7 +58,38 @@ export default {
     }
 
     ///////////////////////////////////////////////////////////////////
+    function createMarker() {
+      let marker = $id(markerid);
+      if (!marker) {
+        marker = svgCanvas.createSVGElement({
+          element: "marker",
+          attr: {
+            id: markerid,
+            refY: 6,
+            refX: 10,
+            markerUnits: "strokeWidth",
+            markerWidth: 13,
+            markerHeight: 13,
+            orient: "auto",
+            style: "pointer-events:none"
+          }
+        });
+        const arrow = svgCanvas.createSVGElement({
+          element: "path",
+          attr: {
+            d: "M2,2 L2,11 L10,6 L2,2",
+            fill: "red"
+          }
+        });
+        marker.append(arrow);
+        svgCanvas.findDefs().append(marker);
+      }
+      return marker;
+    }
+    /////////////////////////////////////////////////////////////
+
     function createDrawElement(id, svgPath, textPosition, text) {
+      createMarker();
       const g = svgCanvas.createSVGElement({
         element: "g",
         attr: {
@@ -94,7 +106,8 @@ export default {
           stroke: "red",
           "stroke-width": "1",
           // "stroke-dasharray": "5,5",
-          style: "pointer-events:none"
+          style: "pointer-events:none",
+          "marker-end": `url(#${markerid})`
         }
       });
 
@@ -112,9 +125,8 @@ export default {
         }
       });
       textSvg.innerHTML = text;
-
-      g.append(pathSVG);
       g.append(textSvg);
+      g.append(pathSVG);
 
       return g;
     }
@@ -131,10 +143,40 @@ export default {
       const dBx = Bx2 - Bx1;
       const dBy = By2 - By1;
       let angle = Math.atan2(dAx * dBy - dAy * dBx, dAx * dBx + dAy * dBy);
+      angle = angle * (180 / Math.PI);
       if (angle < 0) {
-        angle = angle * -1;
+        angle = 180 + angle;
       }
-      return round(angle * (180 / Math.PI), 2) ?? 0;
+
+      return round(angle, 2) ?? 0;
+    }
+
+    function calculateControlPoint() {
+      if (startPoints && endPoints.id) {
+        const m1 =
+          (startPoints.p1.x - startPoints.p2.x) /
+          (startPoints.p2.y - startPoints.p1.y);
+        const m2 =
+          (endPoints.p1.x - endPoints.p2.x) / (endPoints.p2.y - endPoints.p1.y);
+        const c1 = m1 * startPoints.p3.x - startPoints.p3.y;
+        const c2 = m2 * endPoints.p3.x - endPoints.p3.y;
+        const x = (c1 - c2) / (m1 - m2);
+        const y = m1 * x - c1;
+
+        console.log(x, y);
+        const [a1, a2, b1, b2] = [
+          endPoints.p3.x,
+          startPoints.p3.x,
+          endPoints.p3.y,
+          startPoints.p3.y
+        ];
+        const div = a1 * b2 - a2 * b1;
+        const x = (m1 * a1 * b2 - m2 * a2 * b1) / div;
+        const y = (b1 * a2 - m1 * a1 * a2 - a1 * b2 + m2 * a1 * a2) / div;
+        return { x, y };
+      }
+
+      return null;
     }
 
     ///////////////////////////////////////////////////////////////////
@@ -151,7 +193,7 @@ export default {
           startPoints.p3.y + offset,
           endPoints.p3.x + offset,
           endPoints.p3.y + offset,
-          1 //(centerPoint.x + centerPoint.y) / 10
+          (centerPoint.x + centerPoint.y) / 10
         );
 
         const angleBetween = calculateAngle(
@@ -187,7 +229,7 @@ export default {
           startPoints.p3.y + offset,
           endPoints.p3.x + offset,
           endPoints.p3.y + offset,
-          (centerPoint.x + centerPoint.y) / 10
+          (centerPoint.x + centerPoint.y) / 12
         );
 
         if (startPoints.p1 && startPoints.p2 && endPoints.p1 && endPoints.p2) {
