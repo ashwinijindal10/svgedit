@@ -296,6 +296,76 @@ export default {
 
     ///////////////////////////////////////////////////////////////////
 
+    class SVGPathSegType {
+      static PATHSEG_UNKNOWN = 0;
+      static PATHSEG_MOVETO_ABS = 2;
+      static PATHSEG_CLOSEPATH = 1;
+      static PATHSEG_MOVETO_REL = 3;
+      static PATHSEG_LINETO_ABS = 4;
+      static PATHSEG_LINETO_REL = 5;
+      static PATHSEG_CURVETO_CUBIC_ABS = 6;
+      static PATHSEG_CURVETO_CUBIC_REL = 7;
+      static PATHSEG_CURVETO_QUADRATIC_ABS = 8;
+      static PATHSEG_CURVETO_QUADRATIC_REL = 9;
+      static PATHSEG_ARC_ABS = 10;
+      static PATHSEG_ARC_REL = 11;
+      static PATHSEG_LINETO_HORIZONTAL_ABS = 12;
+      static PATHSEG_LINETO_HORIZONTAL_REL = 13;
+      static PATHSEG_LINETO_VERTICAL_ABS = 14;
+      static PATHSEG_LINETO_VERTICAL_REL = 15;
+      static PATHSEG_CURVETO_CUBIC_SMOOTH_ABS = 16;
+      static PATHSEG_CURVETO_CUBIC_SMOOTH_REL = 17;
+      static PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS = 18;
+      static PATHSEG_CURVETO_QUADRATIC_SMOOTH_REL = 19;
+    }
+
+    function convertPathToPolyline(pathSegList) {
+      let svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      let convertedLinesArray = new Array();
+      let lastPoint = svg.createSVGPoint();
+      let nextpoint;
+
+      for (let i = 0; i < pathSegList.length; i++) {
+        let pathSeg = pathSegList.getItem(i);
+        let pathSegType = pathSeg.pathSegType;
+        let pathSegX = pathSeg.x;
+        let pathSegY = pathSeg.y;
+        switch (pathSegType) {
+          case SVGPathSeg.PATHSEG_MOVETO_ABS:
+            lastPoint.x = pathSegX;
+            lastPoint.y = pathSegY;
+            break;
+
+          case SVGPathSeg.PATHSEG_MOVETO_REL:
+            lastPoint.x += pathSegX;
+            lastPoint.y += pathSegY;
+            break;
+
+          case SVGPathSeg.PATHSEG_LINETO_ABS:
+            nextpoint = svg.createSVGPoint();
+            nextpoint.x = pathSegX;
+            nextpoint.y = pathSegY;
+            convertedLinesArray.push(lastPoint, nextpoint);
+            lastPoint = nextpoint;
+            break;
+
+          case SVGPathSeg.PATHSEG_LINETO_REL:
+            nextpoint = svg.createSVGPoint();
+            nextpoint.x = lastPoint.x + pathSegX;
+            nextpoint.y = lastPoint.y + pathSegY;
+            convertedLinesArray.push(lastPoint, nextpoint);
+            lastPoint = nextpoint;
+            break;
+
+          case SVGPathSeg.PATHSEG_CLOSEPATH:
+            break;
+        }
+      }
+
+      return convertedLinesArray;
+    }
+
+    ///////////////////////////////////////////////////////////////
     return {
       name: svgEditor.i18next.t(`${name}:name`),
       callback() {
@@ -325,6 +395,13 @@ export default {
           const { target } = e;
           if (["line", "path"].includes(target.nodeName)) {
             const elem = target;
+
+            if (target.nodeName == "path") {
+              console.log(target.pathSegList);
+              const lines = convertPathToPolyline(target.pathSegList);
+              console.log(lines);
+            }
+
             const p1 = { x: elem.x1.baseVal.value, y: elem.y1.baseVal.value };
             const p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
             const p3 = { x: opts.start_x, y: opts.start_y };

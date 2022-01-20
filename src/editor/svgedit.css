@@ -618,7 +618,7 @@ ul li.current {
   stroke-miterlimit: 1.41;
 }
 
-.angleBetweenActive line.angle-selected {
+.angleBetweenActive line.angle-selected, path {
   fill: none;
   stroke: rgb(64, 136, 209);
   stroke-miterlimit: 1.41;
