@@ -294,36 +294,54 @@ export default {
       return groupObj;
     }
 
-    ///////////////////////////////////////////////////////////////////
+    /////////////////////////////// path line validation  ////////////////////////////////////
 
-    class SVGPathSegType {
-      static PATHSEG_UNKNOWN = 0;
-      static PATHSEG_MOVETO_ABS = 2;
-      static PATHSEG_CLOSEPATH = 1;
-      static PATHSEG_MOVETO_REL = 3;
-      static PATHSEG_LINETO_ABS = 4;
-      static PATHSEG_LINETO_REL = 5;
-      static PATHSEG_CURVETO_CUBIC_ABS = 6;
-      static PATHSEG_CURVETO_CUBIC_REL = 7;
-      static PATHSEG_CURVETO_QUADRATIC_ABS = 8;
-      static PATHSEG_CURVETO_QUADRATIC_REL = 9;
-      static PATHSEG_ARC_ABS = 10;
-      static PATHSEG_ARC_REL = 11;
-      static PATHSEG_LINETO_HORIZONTAL_ABS = 12;
-      static PATHSEG_LINETO_HORIZONTAL_REL = 13;
-      static PATHSEG_LINETO_VERTICAL_ABS = 14;
-      static PATHSEG_LINETO_VERTICAL_REL = 15;
-      static PATHSEG_CURVETO_CUBIC_SMOOTH_ABS = 16;
-      static PATHSEG_CURVETO_CUBIC_SMOOTH_REL = 17;
-      static PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS = 18;
-      static PATHSEG_CURVETO_QUADRATIC_SMOOTH_REL = 19;
+    function pointOnLine(pt1, pt2, pt3) {
+      const result = {
+        between_x: false,
+        between_y: false
+      };
+
+      // Check within x bounds
+      if (
+        (pt1.x <= pt3.x && pt3.x <= pt2.x) ||
+        (pt2.x <= pt3.x && pt3.x <= pt1.x)
+      ) {
+        result.between_x = true;
+      }
+
+      // Check within y bounds
+      if (
+        (pt1.y <= pt3.y && pt3.y <= pt2.y) ||
+        (pt2.y <= pt3.y && pt3.y <= pt1.y)
+      ) {
+        result.between_y = true;
+      }
+
+      return result.between_x && result.between_y;
     }
 
-    function convertPathToPolyline(pathSegList) {
-      let svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      let convertedLinesArray = new Array();
-      let lastPoint = svg.createSVGPoint();
-      let nextpoint;
+    function convertPathToPolyline(pathSVGObj, p) {
+      const pathSegList = pathSVGObj.pathSegList;
+
+      const resetCordinates = () => {
+        return { x: 0, y: 0 };
+      };
+      const validatePointOnPath = (p1, p2) => {
+        console.log(p1, p2, p);
+        if (
+          p1 &&
+          p2 &&
+          p1.x !== p2.x &&
+          p1.y !== p2.y &&
+          pointOnLine(p1, p2, p)
+        ) {
+          return true;
+        }
+        return false;
+      };
+      let lastPoint = resetCordinates();
+      let nextpoint, result;
 
       for (let i = 0; i < pathSegList.length; i++) {
         let pathSeg = pathSegList.getItem(i);
@@ -342,18 +360,20 @@ export default {
             break;
 
           case SVGPathSeg.PATHSEG_LINETO_ABS:
-            nextpoint = svg.createSVGPoint();
+            nextpoint = resetCordinates();
             nextpoint.x = pathSegX;
             nextpoint.y = pathSegY;
-            convertedLinesArray.push(lastPoint, nextpoint);
+            if (validatePointOnPath(lastPoint, nextpoint))
+              return { p1: lastPoint, p2: nextpoint };
             lastPoint = nextpoint;
             break;
 
           case SVGPathSeg.PATHSEG_LINETO_REL:
-            nextpoint = svg.createSVGPoint();
+            nextpoint = resetCordinates();
             nextpoint.x = lastPoint.x + pathSegX;
             nextpoint.y = lastPoint.y + pathSegY;
-            convertedLinesArray.push(lastPoint, nextpoint);
+            if (validatePointOnPath(lastPoint, nextpoint))
+              return { p1: lastPoint, p2: nextpoint };
             lastPoint = nextpoint;
             break;
 
@@ -362,7 +382,7 @@ export default {
         }
       }
 
-      return convertedLinesArray;
+      return false;
     }
 
     ///////////////////////////////////////////////////////////////
@@ -395,20 +415,32 @@ export default {
           const { target } = e;
           if (["line", "path"].includes(target.nodeName)) {
             const elem = target;
+            const p3 = { x: opts.start_x, y: opts.start_y };
+            let p1, p2;
 
-            if (target.nodeName == "path") {
-              console.log(target.pathSegList);
-              const lines = convertPathToPolyline(target.pathSegList);
-              console.log(lines);
+            if (!target.id) {
+              target.setAttribute("id", svgCanvas.getNextId());
             }
 
-            const p1 = { x: elem.x1.baseVal.value, y: elem.y1.baseVal.value };
-            const p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
-            const p3 = { x: opts.start_x, y: opts.start_y };
-            startPoints = { id: target.id, p1, p2, p3 };
-            endPoints = { ...startPoints };
-            currentId = svgCanvas.getNextId();
-            drawAnnotation(currentId);
+            if (target.nodeName == "path") {
+              //https://jsfiddle.net/fq9n7f76/18/
+              const rs = convertPathToPolyline(target, p3);
+              if (rs) {
+                p1 = rs.p1;
+                p2 = rs.p2;
+              }
+            } else {
+              p1 = { x: elem.x1.baseVal.value, y: elem.y1.baseVal.value };
+              p2 = { x: elem.x2.baseVal.value, y: elem.y2.baseVal.value };
+            }
+
+            if (p1 && p2 && p3) {
+              startPoints = { id: target.id, p1, p2, p3 };
+              endPoints = { ...startPoints };
+              currentId = svgCanvas.getNextId();
+              drawAnnotation(currentId);
+            }
+
             return { started: true };
           }
         }
@@ -420,7 +452,7 @@ export default {
           const p3 = { x: opts.mouse_x, y: opts.mouse_y };
           let p1, p2, id;
           if (
-            ["line", "path"].includes(target.nodeName) &&
+            ["line"].includes(target.nodeName) &&
             startPoints.id !== target.id
           ) {
             const elem = target;
